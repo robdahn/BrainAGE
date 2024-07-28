@@ -90,8 +90,8 @@ function [BrainAGE, BrainAGE_unsorted, BrainAGE_all, D, age] = BA_gpr_ui(D)
 % D.dir             - directory for databases and code
 % D.verbose         - verbose level
 %                     0 - suppress long outputs
-%                     0 - print meaningful outputs (default)
-%                     0 - print long outputs
+%                     1 - print meaningful outputs (default)
+%                     2 - print long outputs
 % D.threshold_std   - all data with a standard deviation > D.threshold_std of mean covariance are excluded (after covarying out effects of age)
 %                     meaningful values are 1,2 or Inf
 % D.eqdist          - options for age and sex equalization between test and train
@@ -106,7 +106,7 @@ function [BrainAGE, BrainAGE_unsorted, BrainAGE_all, D, age] = BA_gpr_ui(D)
 % D.style           - plot-style: 1: old style with vertical violin-plot; 2: new style with horizontal density plot
 % D.groupcolor      - matrix with (group)-bar-color(s), use jet(numel(data)) or other color functions (nejm by default)
 % D.normalize_BA    - normalize BA values w.r.t. MAE to make BA less dependent from training sample (i.e. size) and scale 
-%                     it to MAE of 5 (default)
+%                     it to MAE of 5
 % D.nuisance        - additionally define nuisance parameter for covarying out (e.g. gender)
 % D.parcellation    - use parcellation into lobes to additionally estimate local BrainAGE values:
 %                     https://figshare.com/articles/dataset/Brain_Lobes_Atlas/971058
@@ -144,7 +144,9 @@ function [BrainAGE, BrainAGE_unsorted, BrainAGE_all, D, age] = BA_gpr_ui(D)
 % ______________________________________________________________________
 % $Id$
 
-global min_hyperparam
+%#ok<*AGROW>
+
+global min_hyperparam %#ok<GVMIS>
 
 % add cat12 path if not already done
 if ~exist('cat_stat_polynomial','file')
@@ -153,7 +155,7 @@ end
 
 % use normalized BA as default and scale it to MAE of 5
 if ~isfield(D,'normalize_BA')
-  D.normalize_BA = 5;
+  D.normalize_BA = 0;
 else
   if D.normalize_BA == 1
     D.normalize_BA = 5;
@@ -180,7 +182,7 @@ if ~isfield(D,'ensemble')
   D.ensemble = 5;
 end
 
-if D.ensemble < 0 && ~exist('fmincon')
+if D.ensemble < 0 && ~exist('fmincon','var')
   fprintf('In order to use non-linear optimization you need the Optimization Toolbox.\n');
   return
 end
@@ -293,7 +295,7 @@ if isfield(D,'n_fold') && ~isfield(D,'k_fold')
 end
 
 % if comcat is defined and set to 0 then remove this field
-if isfield(D,'comcat') && numel(D.comcat) == 1 &&  D.comcat == 0
+if isfield(D,'comcat') && isscalar(D.comcat) &&  D.comcat == 0
   D = rmfield(D,'comcat');
 end
 
@@ -346,7 +348,7 @@ if ~isfield(D,'n_data')
     % D.comcat can be also just defined as single value that indicates
     % that the comcat-vector that defines the different samples will be
     % automatically build
-    if isfield(D,'comcat') && numel(D.comcat) == 1 && D.comcat == 1
+    if isfield(D,'comcat') && isscalar(D.comcat) && D.comcat == 1
       D_comcat = [];
     end
   
@@ -357,12 +359,12 @@ if ~isfield(D,'n_data')
     for l = 1:n_train
       load([D.smooth_array{1} seg_array '_' D.res_array{1} 'mm_' D.data(ind_plus(l)+1:ind_plus(l+1)-1) D.relnumber],'age');
       age0 = [age0; age];
-      if isfield(D,'comcat') && numel(D.comcat) == 1 && D.comcat == 1
+      if isfield(D,'comcat') && isscalar(D.comcat) && D.comcat == 1
         D_comcat = [D_comcat; l*ones(size(age))];
       end
     end
 
-    if isfield(D,'comcat') && numel(D.comcat) == 1 && D.comcat == 1
+    if isfield(D,'comcat') && isscalar(D.comcat) && D.comcat == 1
       D.comcat = D_comcat;
     end
     
@@ -372,7 +374,7 @@ if ~isfield(D,'n_data')
     load([D.smooth_array{1} seg_array '_' D.res_array{1} 'mm_' D.data D.relnumber],'age');
     D.n_data = numel(age);
 
-    if isfield(D,'comcat') && numel(D.comcat) == 1 && D.comcat == 1 && strcmp(D.train_array{1},D.data)
+    if isfield(D,'comcat') && isscalar(D.comcat) && D.comcat == 1 && strcmp(D.train_array{1},D.data)
       D.comcat = ones(size(age));
     end
   end
@@ -448,7 +450,7 @@ if ~isfield(D,'run_kfold')
   fprintf('Trend method:  \t%d\n',D.trend_method);
   fprintf('Age-Range:     \t%g-%g\n',D.age_range(1),D.age_range(2));
   fprintf('--------------------------------------------------------------\n');
-  if isfield(D,'parcellation') & D.parcellation
+  if isfield(D,'parcellation') && D.parcellation
     fprintf('Estimate local BrainAGE with parcellation into lobes.\n');
   end
 end
@@ -560,7 +562,11 @@ if ((~isfield(D,'data') || ~isfield(D,'train_array')) || isfield(D,'k_fold')) &&
       % whether there is some overlap between training and test data
       n_overlaps = sum(ismember(ind_train,ind_test));
       if n_overlaps
-        fprintf('WARNING: There is an overlap of %d subjects between training and test data.\n',n_overlaps)
+        if exist('cat_io_cprintf','var')
+          cat_io_cprintf('warn',sprintf('WARNING: There is an overlap of %d subjects between training and test data.\n',n_overlaps));
+        else
+          fprintf('WARNING: There is an overlap of %d subjects between training and test data.\n',n_overlaps);
+        end
       end
 
       % build indices for training and test
@@ -645,7 +651,7 @@ if ((~isfield(D,'data') || ~isfield(D,'train_array')) || isfield(D,'k_fold')) &&
       if D.verbose > 0 && D.trend_degree >= 0 && ~isfield(D,'define_cov')
         fprintf('\n===========================================================\n'); 
         fprintf(ensemble_str{D0.ensemble+1}); fprintf('\n');
-        str_trend = {'No age correction','Age correction using BA','Age correction using PredicatedAge (Cole)'};
+        str_trend = {'No age correction','Age correction using BA','Age correction using PredictedAge (Cole)'};
         co = 0:2;
         co(co == D.trend_method) = [];
         for i=co
@@ -914,7 +920,11 @@ for i = 1:numel(D.res_array)
         n_groups = numel(D.ind_groups);
         
         if ~isfield(D,'groupcolor')
-          groupcolor = cat_io_colormaps('nejm',n_groups);
+          try 
+            groupcolor = cat_io_colormaps('trafficlight',n_groups);
+          catch
+            groupcolor = cat_io_colormaps('nejm',n_groups);
+          end
         else
           groupcolor = D.groupcolor;
         end
@@ -1145,7 +1155,7 @@ for i = 1:numel(D.res_array)
   
         % ANOVA + T-Test
         if n_groups > 1
-          if exist('BA_anova1')
+          if exist('BA_anova1','var')
             group = ones(length(D.ind_groups{1}),1);
             for o = 2:n_groups
               group = [group; o*ones(length(D.ind_groups{o}),1)];
@@ -1169,7 +1179,7 @@ for i = 1:numel(D.res_array)
                   if o == p
                     P(o,p) = 0.5;
                   else
-                    [H,P(o,p)] = BA_ttest2(BrainAGE(D.ind_groups{o},r),BrainAGE(D.ind_groups{p},r),0.05,'left');
+                    [~,P(o,p)] = BA_ttest2(BrainAGE(D.ind_groups{o},r),BrainAGE(D.ind_groups{p},r),0.05,'left');
                   end
                 end
               end
@@ -1211,7 +1221,11 @@ for i = 1:numel(D.res_array)
             warning on
                 
           else
-            fprintf('Warning: BA_anova1 not found.\n');
+            if exist('cat_io_cprintf','var')
+              cat_io_cprintf('warn',sprintf('Warning: BA_anova1 not found.\n'));
+            else
+              fprintf('Warning: BA_anova1 not found.\n');
+            end
           end
 
  
@@ -1312,8 +1326,12 @@ if multiple_BA && ((isfield(D,'run_kfold') && ~D.run_kfold) || ~isfield(D,'run_k
     figure(23)
     clf
     hold on 
+    gsigns = 'os^v><d';
     for i = 1:n_groups
-      plot(D.age_test(D.ind_groups{i}),D.age_test(D.ind_groups{i})+BA_unsorted_weighted(D.ind_groups{i}),'*','color',groupcolor(i,:))
+      scatter(D.age_test(D.ind_groups{i}),D.age_test(D.ind_groups{i})+BA_unsorted_weighted(D.ind_groups{i}),...
+        gsigns(mod(i-1,numel(gsigns))+1), ...
+        'MarkerEdgeColor',groupcolor(i,:),'MarkerEdgeAlpha',0.33, ...
+        'MarkerFaceColor',groupcolor(i,:),'MarkerFaceAlpha',0.33);
     end
     line([0.9*min(D.age_test(D.ind_adjust)) 1.1*max(D.age_test(D.ind_adjust))],[0.9*min(D.age_test(D.ind_adjust)) 1.1*max(D.age_test(D.ind_adjust))],...
       'Color',[0 0 0],'lineWidth',2);
@@ -1327,7 +1345,7 @@ if multiple_BA && ((isfield(D,'run_kfold') && ~D.run_kfold) || ~isfield(D,'run_k
   end
   
   if n_groups > 1
-    if exist('BA_anova1')
+    if exist('BA_anova1','var')
 
       if D.verbose > 1
         fprintf('\nWeighted ANOVA P-value: ');
@@ -1342,7 +1360,7 @@ if multiple_BA && ((isfield(D,'run_kfold') && ~D.run_kfold) || ~isfield(D,'run_k
         P = zeros(n_groups,n_groups);
         for o = 1:n_groups
           for p = 1:n_groups
-            [H,P(o,p)] = BA_ttest2(BA_unsorted_weighted(D.ind_groups{o},r),BA_unsorted_weighted(D.ind_groups{p},r),0.05,'left');
+            [~,P(o,p)] = BA_ttest2(BA_unsorted_weighted(D.ind_groups{o},r),BA_unsorted_weighted(D.ind_groups{p},r),0.05,'left');
           end
         end
       
@@ -1374,13 +1392,13 @@ if multiple_BA && ((isfield(D,'run_kfold') && ~D.run_kfold) || ~isfield(D,'run_k
           fprintf('\n');
         end
       
-        if ~isempty(find(P<=0.05))
+        if any( P <= 0.05 ) % ~isempty(find(P<=0.05))
           fprintf('****************************\n');
           fprintf('Significant result found\n');
           fprintf('****************************\n\n');
         end
       end
-    else
+    elseif multiple_BA && ((isfield(D,'run_kfold') && ~D.run_kfold) || ~isfield(D,'run_kfold'))
       fprintf('BA_anova1 not found.\n');
     end
   end
@@ -1583,7 +1601,11 @@ case {3, -3}   % use GLM estimation to maximize group differences or correlation
     if max(ind) == numel(ind)
       D.contrast = D.contrast(ind,:);
     else
-      fprintf('Warning: Order of D.ind_groups should be not mixed because we cannot identify the correct order!\n');
+      if exist('cat_io_cprintf','var')
+        cat_io_cprintf('warn',sprintf('Warning: Order of D.ind_groups should be not mixed because we cannot identify the correct order!\n'));
+      else
+        fprintf('Warning: Order of D.ind_groups should be not mixed because we cannot identify the correct order!\n');
+      end
     end
     group_diff = 0;
   elseif size(D.contrast,1) == size(BA_corrected,1)
@@ -1708,7 +1730,11 @@ case {6, -6}   % use GLM estimation for mean tissue to maximize group difference
     if max(ind) == numel(ind)
       D.contrast = D.contrast(ind,:);
     else
-      fprintf('Warning: Order of D.ind_groups should be not mixed because we cannot identify the correct order!\n');
+      if exist('cat_io_cprintf','var')
+        cat_io_cprintf('warn',sprintf('Warning: Order of D.ind_groups should be not mixed because we cannot identify the correct order!\n'));
+      else
+        fprintf('Warning: Order of D.ind_groups should be not mixed because we cannot identify the correct order!\n');
+      end
     end
     group_diff = 0;
   elseif size(D.contrast,1) == size(BA_corrected,1)
@@ -1900,7 +1926,13 @@ for i = 1:max(site_adjust)
     end
   else
     if D.trend_degree >= 0
-      if verbose, fprintf('Warning: No subjects found in sample #%d for site-specific trend-correction\n',i); end
+      if verbose
+        if exist('cat_io_cprintf','var')
+          cat_io_cprintf('warn',sprintf('Warning: No subjects found in sample #%d for site-specific trend-correction\n',i)); 
+        else
+          fprintf('Warning: No subjects found in sample #%d for site-specific trend-correction\n',i); 
+        end
+      end
     end
   end
 end
@@ -1912,7 +1944,13 @@ PredictedAge = PredictedAge - avg_BrainAGE;
 MAE = mean(abs(BrainAGE));
 
 if MAE0/MAE > 4
-  if verbose, fprintf('Warning: Large discrepancy between MAE before and after correction which points to a too narrow age range of training data!\n'); end
+  if verbose
+    if exist('cat_io_cprintf','var')
+      cat_io_cprintf('warn',sprintf('Warning: Large discrepancy between MAE before and after correction which points to a too narrow age range of training data!\n')); 
+    else
+      fprintf('Warning: Large discrepancy between MAE before and after correction which points to a too narrow age range of training data!\n'); 
+    end
+  end
 end
 
 %-------------------------------------------------------------------------------
@@ -1939,7 +1977,7 @@ C = [
 C = reshape(sscanf(C(:,2:end)','%2x'),3,[])./255;
 C = C';
 
-function Beta = nonlin_optim(Y, X);
+function Beta = nonlin_optim(Y, X)
 % Use non-linear optimization to solve the equivalent of pinv(Y)*X, but with the
 % constrain that weights (betas) should be positive and in the range 0.001..0.999
 % Requirement: Optimization Toolbox
